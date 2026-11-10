@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="si">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pain Cartoon LK</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Nunito:wght@400;700&display=swap">
+<style>
+:root{--bg:#14123a;--panel:#211e55;--ink:#f6f1ff;--mute:#a9a3d6;--sun:#ffc93c;--coral:#ff5d73}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Nunito",system-ui,sans-serif;line-height:1.5}
+a{color:inherit;text-decoration:none}
+h1,h2,h3,.logo{font-family:"Baloo 2","Nunito",system-ui,sans-serif;margin:0}
+.wrap{max-width:1100px;margin:0 auto;padding:16px}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-bottom:3px solid var(--sun)}
+.logo{font-size:1.6rem;font-weight:800}.logo b{color:var(--sun)}
+input,select{font:inherit;padding:10px 12px;border-radius:10px;border:2px solid var(--panel);background:#1a1747;color:var(--ink);width:100%}
+button,.btn{font:inherit;background:var(--sun);color:#14123a;border:0;font-weight:800;cursor:pointer;padding:10px 16px;border-radius:10px;display:inline-block}
+button.alt,.btn.alt{background:var(--coral);color:#fff}
+input:focus,select:focus,button:focus-visible,a:focus-visible{outline:3px solid var(--sun);outline-offset:2px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:14px;margin-top:16px}
+.card{background:var(--panel);border-radius:14px;overflow:hidden}
+.card img{width:100%;aspect-ratio:2/3;object-fit:cover;display:block;background:#1a1747}
+.card p{margin:0;padding:8px 10px;font-weight:700;font-size:.9rem}
+.player{width:100%;aspect-ratio:16/9;border:0;border-radius:14px;background:#000}
+.eps{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.eps button{background:var(--panel);color:var(--ink)}.eps button.on{background:var(--sun);color:#14123a}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}
+.muted{color:var(--mute)}
+.box{background:var(--panel);border-radius:14px;padding:14px;margin-top:16px;display:grid;gap:10px}
+@media(prefers-reduced-motion:no-preference){.card{transition:transform .15s}.card:hover{transform:translateY(-4px)}}
+</style>
+</head>
+<body>
+<header class="bar">
+  <a href="#/" class="logo">Pain <b>Cartoon</b> LK</a>
+  <a href="#/admin" class="muted">Admin</a>
+</header>
+<main class="wrap" id="app"><p class="muted">Loading...</p></main>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, get, set, push } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+/* ===== Fill these in ===== */
+const FIREBASE = {
+  apiKey: "",
+  authDomain: "",
+  databaseURL: "",
+  projectId: "",
+  appId: ""
+};
+const TMDB_KEY = "";
+const ADMIN_EMAIL = "";
+/* ========================= */
+
+const app = initializeApp(FIREBASE);
+const db = getDatabase(app);
+const auth = getAuth(app);
+const $ = (id) => document.getElementById(id);
+const el = $("app");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const safeUrl = (u) => (/^https?:\/\//i.test(u || "") ? esc(u) : "");
+
+let user = undefined, cache = null, msg = "";
+onAuthStateChanged(auth, (u) => { user = u; route(); });
+
+async function cartoons() {
+  if (cache) return cache;
+  const s = await get(ref(db, "cartoons"));
+  return (cache = Object.entries(s.val() || {}).map(([id, v]) => ({ id, ...v })));
+}
+
+/* ---------- Home ---------- */
+async function home() {
+  el.innerHTML = `<input id="q" placeholder="Search cartoons"><div class="grid" id="g"><p class="muted">Loading cartoons...</p></div>`;
+  let list = [];
+  try { list = await cartoons(); } catch { $("g").innerHTML = `<p>Could not load cartoons. Check the Firebase config and database rules.</p>`; return; }
+  const draw = () => {
+    const q = $("q").value.toLowerCase();
+    const shown = list.filter((c) => (c.title || "").toLowerCase().includes(q));
+    $("g").innerHTML = shown.length
+      ? shown.map((c) => `<a class="card" href="#/cartoon/${esc(c.id)}"><img src="${safeUrl(c.poster)}" alt="${esc(c.title)}" loading="lazy"><p>${esc(c.title)}</p></a>`).join("")
+      : `<p class="muted">No cartoons yet. Add one from the admin page.</p>`;
+  };
+  $("q").oninput = draw; draw();
+}
+
+/* ---------- Cartoon page ---------- */
+async function cartoon(id, epKey) {
+  el.innerHTML = `<p class="muted">Loading...</p>`;
+  const v = (await get(ref(db, `cartoons/${id}`))).val();
+  if (!v) { el.innerHTML = `<p>This cartoon was not found.</p>`; return; }
+  const eps = Object.entries(v.episodes || {}).map(([k, e]) => ({ k, ...e }));
+  const cur = eps.find((e) => e.k === epKey) || eps[0];
+  let player = "";
+  if (cur) {
+    const u = safeUrl(cur.videoUrl);
+    player = /\.(mp4|webm)(\?|$)/i.test(cur.videoUrl || "")
+      ? `<video class="player" src="${u}" controls></video>`
+      : `<iframe class="player" src="${u}" allowfullscreen></iframe>`;
+  }
+  el.innerHTML = `
+    <h1>${esc(v.title)} <span class="muted">${esc(v.year)}</span></h1>
+    <p class="muted">${esc(v.overview)}</p>
+    ${cur ? `${player}<h3 style="margin-top:10px">${esc(cur.title)}</h3>
+      <div class="row">
+        ${cur.subtitleUrl ? `<a class="btn" href="${safeUrl(cur.subtitleUrl)}" download>Download Sinhala subtitle</a>` : ""}
+        ${cur.dubUrl ? `<a class="btn alt" href="${safeUrl(cur.dubUrl)}" download>Download Sinhala dubbed</a>` : ""}
+      </div>
+      <div class="eps">${eps.map((e) => `<button class="${e.k === cur.k ? "on" : ""}" data-k="${esc(e.k)}">${esc(e.title)}</button>`).join("")}</div>`
+      : `<p class="muted">No episodes added yet.</p>`}`;
+  el.querySelectorAll(".eps button").forEach((b) => (b.onclick = () => (location.hash = `#/cartoon/${id}/${b.dataset.k}`)));
+}
+
+/* ---------- Admin ---------- */
+async function admin() {
+  if (user === undefined) { el.innerHTML = `<p class="muted">Loading...</p>`; return; }
+  if (!user) {
+    el.innerHTML = `<div class="box"><h2>Admin login</h2>
+      <input id="em" placeholder="Email"><input id="pw" type="password" placeholder="Password">
+      <button id="go">Log in</button><p class="muted">${esc(msg)}</p></div>`;
+    $("go").onclick = () => signInWithEmailAndPassword(auth, $("em").value, $("pw").value)
+      .catch(() => { msg = "Wrong email or password."; admin(); });
+    return;
+  }
+  if (user.email !== ADMIN_EMAIL) {
+    el.innerHTML = `<p>This account is not the admin.</p><button id="out">Log out</button>`;
+    $("out").onclick = () => signOut(auth); return;
+  }
+  cache = null;
+  const mine = await cartoons();
+  el.innerHTML = `
+    <div class="row"><h2>Admin</h2><button class="alt" id="out">Log out</button></div>
+    <p class="muted" id="m">${esc(msg)}</p>
+    <div class="box"><h3>1. Add a cartoon from TMDB</h3>
+      <input id="tq" placeholder="Search TMDB"><button id="ts">Search</button><div id="tr"></div></div>
+    <div class="box"><h3>2. Add an episode</h3>
+      <select id="cid"><option value="">Choose cartoon</option>${mine.map((m) => `<option value="${esc(m.id)}">${esc(m.title)}</option>`).join("")}</select>
+      <input id="et" placeholder="Episode title (e.g. S1 E1)">
+      <input id="ev" placeholder="Video link (mp4 or embed URL)">
+      <input id="es" placeholder="Sinhala subtitle link (optional)">
+      <input id="ed" placeholder="Sinhala dubbed download link (optional)">
+      <button id="se">Save episode</button></div>`;
+  const say = (t) => { msg = t; $("m").textContent = t; };
+  $("out").onclick = () => signOut(auth);
+  const search = async () => {
+    const r = await fetch(`https://api.themoviedb.org/3/search/tv?api_key=${TMDB_KEY}&query=${encodeURIComponent($("tq").value)}`);
+    const res = ((await r.json()).results || []).slice(0, 8);
+    $("tr").innerHTML = res.map((t, i) => `<div class="row"><span style="flex:1">${esc(t.name)} <span class="muted">${esc((t.first_air_date || "").slice(0, 4))}</span></span><button data-i="${i}">Add</button></div>`).join("");
+    $("tr").querySelectorAll("button").forEach((b) => (b.onclick = async () => {
+      const t = res[b.dataset.i];
+      await set(ref(db, `cartoons/${t.id}`), {
+        title: t.name, overview: t.overview || "", year: (t.first_air_date || "").slice(0, 4),
+        poster: t.poster_path ? `https://image.tmdb.org/t/p/w342${t.poster_path}` : ""
+      });
+      msg = `Added ${t.name}`; admin();
+    }));
+  };
+  $("ts").onclick = search;
+  $("tq").onkeydown = (e) => e.key === "Enter" && search();
+  $("se").onclick = async () => {
+    const cid = $("cid").value, title = $("et").value.trim(), videoUrl = $("ev").value.trim();
+    if (!cid || !title || !videoUrl) return say("Pick a cartoon and fill the title and video link.");
+    await push(ref(db, `cartoons/${cid}/episodes`), { title, videoUrl, subtitleUrl: $("es").value.trim(), dubUrl: $("ed").value.trim() });
+    say(`Added ${title}`);
+    ["et", "ev", "es", "ed"].forEach((i) => ($(i).value = ""));
+  };
+}
+
+/* ---------- Router ---------- */
+function route() {
+  const [, page, id, ep] = location.hash.split("/");
+  if (page === "cartoon" && id) cartoon(id, ep);
+  else if (page === "admin") admin();
+  else home();
+}
+window.addEventListener("hashchange", route);
+</script>
+</body>
+</html>
